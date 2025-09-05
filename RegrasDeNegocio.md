@@ -1,4 +1,4 @@
-#  DOCUMENTO COMPLETO DE EXIGÊNCIAS - VERSÃO ATUALIZADA
+#  DOCUMENTO COMPLETO DAS ALTERAÇÕES NAS REGRAS DE NEGÓCIO DA QUERY ATENDIMENTO
 
 ##  **EXIGÊNCIAS JÁ IMPLEMENTADAS NA QUERY ATUAL**
 
@@ -14,7 +14,7 @@
 -- Linhas 147-159 da query, coluna DS_STATUS_Simplificada:
 CASE
     ...
-    WHEN PCG.DS_STATUS = 'Exigência Atendida' THEN 'Aguardando Análise'  -- AQUI!
+    WHEN PCG.DS_STATUS = 'Exigência Atendida' THEN 'Análise'  -- AQUI!
     ...
 END AS DS_STATUS_SIMPLIFICADA
 ```
@@ -420,7 +420,7 @@ SELECT
         WHEN PCG.NR_BOLETO IS NOT NULL AND PCG.DT_PAGAMENTO IS NULL AND PCG.DS_STATUS = 'Solicitação Enviada'
             THEN 'Aguardando Pagamento'
         WHEN PCG.NR_BOLETO IS NULL AND PCG.FINISHED = 0 AND PCG.DS_STATUS = 'Solicitação Enviada'
-            THEN 'Aguardando Análise'
+            THEN 'Análise'
         ELSE PCG.DS_STATUS
     END AS DS_STATUS,
     -- DS_STATUS_Simplificada baseada no status ORIGINAL
