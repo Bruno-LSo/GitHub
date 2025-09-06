@@ -6,6 +6,56 @@ Esta query foi desenvolvida para atender às necessidades de Business Intelligen
 
 A estrutura utiliza CTEs (Common Table Expressions) para otimizar a performance e organizar logicamente as transformações de dados, implementando regras de negócio complexas que refletem o fluxo operacional do CREA-SP. A query processa informações desde a abertura de protocolos até sua finalização, incluindo dados de pagamento, atribuição de responsáveis e cálculo de prazos.
 
+## Estrutura da Documentação
+
+Esta documentação está organizada em:
+- **Página Principal (este arquivo)**: Visão geral, estrutura técnica e índices
+- **Páginas Individuais por Coluna**: Uma página dedicada para cada uma das 23 colunas do resultado, com explicações detalhadas das regras de negócio, origens dos dados e exemplos práticos
+- **Navegação**: Links diretos para cada página de coluna facilitando o acesso à informação específica
+
+## Arquitetura Técnica
+
+### Otimizações de Performance
+
+A query implementa índices específicos para melhorar drasticamente o tempo de execução:
+
+```sql
+CREATE INDEX IDX_PROT_DRAFT_FINISHED ON DB2INET.TB_PROTOCOLO_CREANET (DRAFT, FINISHED, CD_PROT);
+CREATE INDEX IDX_STATUS_PROT_CD ON DB2INET.TB_STATUS_PROTOCOLO_CREANET (CD_PROT, CD_STAT_PROT);
+CREATE INDEX IDX_FUNC_UPPER_SAM ON DB2INET.TB_FUNCIONARIO (UPPER(SAMACCOUNTNAME), DELETED);
+CREATE INDEX IDX_BOLETO_CD_PROC ON DB2INET.TB_BOLETO (CD_PROC);
+CREATE INDEX IDX_UNIDADE_DESC ON DB2INET.TB_UNIDADE (DESC_UNI, DESC_SIGLA);
+```
+
+### Common Table Expressions (CTEs)
+
+A query utiliza 5 CTEs para modularizar e otimizar o processamento:
+
+#### 1. ULTIMO_STATUS
+- **Função**: Obtém o último status de cada protocolo
+- **Técnica**: ROW_NUMBER() particionado por CD_PROT
+- **Tabela Base**: `DB2INET.TB_STATUS_PROTOCOLO_CREANET`
+
+#### 2. FUNCIONARIOS_ACERVO
+- **Função**: Identifica funcionários que trabalham com Acervo Técnico
+- **Técnica**: DISTINCT com filtro por tipo de protocolo
+- **Tabelas Base**: `TB_PROTOCOLO_CREANET`, `TB_STATUS_PROTOCOLO_CREANET`, `TB_TIPO_PROTOCOLO`
+
+#### 3. UNIDADE_LOCALIDADE
+- **Função**: Mapeia unidades para suas localidades/cidades
+- **Técnica**: ROW_NUMBER() para garantir unicidade
+- **Tabelas Base**: `TB_UNIDADE`, `TB_UNIDADE_LOCALIDADE`, `TB_LOCALIDADE`
+
+#### 4. GRE_MAPPING
+- **Função**: Mapeia funcionários para suas respectivas GREs
+- **Técnica**: JOIN múltiplo com priorização via ROW_NUMBER()
+- **Tabelas Base**: `TB_FUNCIONARIO`, `TB_UNIDADE`, `VW_UNIDADES_GRES`
+
+#### 5. PROTOCOLO_COMPLETO
+- **Função**: CTE principal que consolida todos os dados
+- **Técnica**: LEFT JOINs múltiplos com cálculos pré-processados
+- **Tabelas Base**: Todas as tabelas principais e CTEs anteriores
+
 ## Código da Query
 
 ```sql
@@ -794,9 +844,52 @@ WITH UR
 ;
 ```
 
-## Estrutura da Documentação
+## Tabelas Utilizadas
 
-### Colunas de Saída
+A query acessa 10 tabelas/views do esquema DB2INET:
+
+| Tabela/View | Descrição | Principais Colunas Utilizadas |
+|-------------|-----------|-------------------------------|
+| `TB_PROTOCOLO_CREANET` | Dados principais dos protocolos | NR_PROT, DT_ABERTURA, DT_EST_CONCLUSAO, FINISHED, CD_TP_PROT, CD_SUBTP_PROT |
+| `TB_STATUS_PROTOCOLO_CREANET` | Histórico de status dos protocolos | CD_PROT, DS_OBSERVACOES, DT_STATUS, ATRIBUIDO, CD_TP_STATUS_PROT |
+| `TB_TIPO_PROTOCOLO` | Tipos de protocolo disponíveis | CD_TP_PROT, NM_TP_PROT |
+| `TB_SUBTIPO_PROTOCOLO` | Subtipos de protocolo | CD_SUBTP_PROT, NM_SUBTP_PROT |
+| `TB_TIPO_STATUS_PROTOCOLO` | Tipos de status possíveis | CD_TP_STATUS_PROT, DS_STATUS |
+| `TB_FUNCIONARIO` | Cadastro de funcionários | SAMACCOUNTNAME, DEPARTMENT, DELETED |
+| `TB_BOLETO` | Informações de pagamento | CD_PROC, NR_BOLETO, DT_PAGAMENTO |
+| `TB_UNIDADE` | Unidades organizacionais | DESC_UNI, DESC_SIGLA, CD_UNI |
+| `TB_UNIDADE_LOCALIDADE` | Relação entre unidades e localidades | CD_UNI, LOC_NU |
+| `TB_LOCALIDADE` | Cadastro de localidades | LOC_NU, LOC_NO |
+| `VW_UNIDADES_GRES` | View de mapeamento das GREs | DESC_UNI, SIGLA_UNI, GRE_SIGLA, GRE_DESC |
+
+## Filtros WHERE Complexos
+
+A query aplica filtros extensivos para excluir áreas não operacionais:
+
+### Exclusões por Valor Exato
+```sql
+NOT IN ('SEM CLASSIFICAÇÃO', 'PRESIDÊNCIA', 'EISI', 'GDEP', 'GFISC', 
+        'ADM DADOS', 'CONSULTA TÉCNICA', 'EQUIPE OPERAÇÃO', 'GEJ', 'JURÍDICO')
+```
+
+### Exclusões por Pattern (LIKE)
+- `NOT LIKE '%ADM DE DADOS%'`
+- `NOT LIKE '%CONSULTA TÉCNICA%'`
+- `NOT LIKE '%EQUIPE OPERAÇÃO%'`
+- `NOT LIKE '%GEJ%'`
+- `NOT LIKE '%GDEP%'`
+- `NOT LIKE '%GFISC%'`
+
+**Importante**: A lógica de GRE_Simplificada é completamente replicada no WHERE para garantir filtros corretos.
+
+## Nível de Isolamento
+
+A query utiliza `WITH UR` (Uncommitted Read) no final:
+- Permite leitura de dados não confirmados
+- Melhora performance em consultas de relatório
+- Adequado para BI onde pequenas inconsistências temporárias são aceitáveis
+
+## Colunas de Saída
 
 Cada coluna possui uma página dedicada com explicação detalhada sobre sua origem, regras de negócio aplicadas e exemplos práticos:
 
@@ -824,27 +917,59 @@ Cada coluna possui uma página dedicada com explicação detalhada sobre sua ori
 22. **[DT_FINALIZACAO](./colunas/DT_FINALIZACAO.md)** - Data de finalização do protocolo
 23. **[GRE_SIMPLIFICADA](./colunas/GRE_SIMPLIFICADA.md)** - GRE simplificada para análise consolidada
 
-## Tabelas Utilizadas
+## Principais Regras de Negócio
 
-A query utiliza as seguintes tabelas do banco DB2INET:
+### Cálculo de SLA
+- Considera data de pagamento quando disponível
+- Casos especiais zerados (cancelados, empresas deferidas)
+- Diferencia protocolos finalizados vs. em andamento
 
-- `TB_STATUS_PROTOCOLO_CREANET` - Histórico de status dos protocolos
-- `TB_PROTOCOLO_CREANET` - Dados principais dos protocolos
-- `TB_TIPO_PROTOCOLO` - Tipos de protocolo disponíveis
-- `TB_SUBTIPO_PROTOCOLO` - Subtipos de protocolo
-- `TB_TIPO_STATUS_PROTOCOLO` - Tipos de status possíveis
-- `TB_FUNCIONARIO` - Cadastro de funcionários
-- `TB_BOLETO` - Informações de pagamento
-- `TB_UNIDADE` - Unidades organizacionais
-- `TB_UNIDADE_LOCALIDADE` - Relação entre unidades e localidades
-- `TB_LOCALIDADE` - Cadastro de localidades
-- `VW_UNIDADES_GRES` - View de mapeamento das GREs
+### Categorização de Status
+- **Cancelado por não pagamento**: Boletos vencidos
+- **Sem pagamento**: Vencidos aguardando pagamento
+- **Dentro/Fora do Prazo**: Comparação com SLA_OFICIAL
 
-## Otimizações Implementadas
+### Identificação de GRE
+- Prioriza situações especiais (cancelados, acervo)
+- Mapeia funcionários para GREs regionais
+- Simplifica departamentos em siglas
 
-A query implementa diversas otimizações para melhorar a performance:
+### Transformações de Status
+- "Solicitação Enviada" pode virar "Aguardando Pagamento" ou "Aguardando Análise"
+- Múltiplos status agrupados em categorias simplificadas
 
-- Criação de índices específicos para as colunas mais utilizadas em JOINs e filtros
-- Uso de CTEs para pré-processar dados e evitar recálculos
-- ROW_NUMBER() para obter eficientemente o último status de cada protocolo
-- Cálculos realizados uma única vez e reutilizados ao longo da query
+## Casos de Uso
+
+Esta query atende diversos cenários de análise:
+
+1. **Monitoramento de SLA**: Identifica protocolos fora do prazo regulamentar
+2. **Gestão de Backlog**: Quantifica protocolos em aberto por unidade
+3. **Análise de Inadimplência**: Rastreia protocolos com pagamento pendente
+4. **Distribuição de Carga**: Avalia volume por GRE e funcionário
+5. **Indicadores de Performance**: Calcula taxas de conclusão e tempo médio
+6. **Conformidade Regulatória**: Verifica aderência aos prazos oficiais
+
+## Considerações de Performance
+
+- **Índices criados**: Reduzem drasticamente o tempo de execução
+- **CTEs**: Evitam recálculos e organizam processamento
+- **Cálculos únicos**: Valores como DAYS() calculados uma vez na CTE
+- **WITH UR**: Melhora velocidade em ambiente de relatório
+
+## Manutenção e Evolução
+
+Para adicionar novos subtipos ou modificar SLAs:
+1. Ajustar o CASE de SLA_OFICIAL na CTE PROTOCOLO_COMPLETO
+2. Verificar impacto em CATEGORIA_STATUS
+3. Considerar se novos departamentos precisam mapeamento em GRE_SIMPLIFICADA
+4. Avaliar necessidade de novos índices
+
+## Observações Importantes
+
+- Query atualizada em 02/09/2025 após alinhamento com equipe HEPTA
+- Desenvolvida a pedido de Rodnei para BI do atendimento
+- Exclui protocolos em rascunho (DRAFT = 0)
+- Usa dias corridos, não dias úteis
+- Correção aplicada: "ATENDIMENTO" unificado com "ACERVO"
+
+---
